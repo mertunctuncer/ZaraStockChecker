@@ -310,3 +310,79 @@ def check_stock_mango(driver, sizes_to_check):
     except Exception as e:
         print(f"An error occurred while checking Mango stock: {e}")
         return None
+
+
+# Function to check stock availability (For Pull & Bear)
+def check_stock_pull_and_bear(driver, sizes_to_check):
+    try:
+        # P&B logic is very similar to Bershka but requires specific class checks
+        wait = WebDriverWait(driver, 15)
+
+        # 1. Handle cookie popup
+        try:
+            accept_cookies_button = wait.until(EC.element_to_be_clickable((By.ID, "onetrust-accept-btn-handler")))
+            accept_cookies_button.click()
+            print("P&B: Cookie alert closed.")
+        except Exception:
+            pass
+
+        # 2. Wait for the size list to load
+        # Pull & Bear uses the data-qa-anchor 'sizeListItem' for buttons
+        print("Waiting for Pull & Bear size list...")
+        try:
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-qa-anchor='sizeListItem']")))
+        except TimeoutException:
+            print("P&B: Size buttons not found. The product might be completely out of stock or link is invalid.")
+            return None
+
+        # Give dynamic elements a moment to set their classes (disabled vs enabled)
+        time.sleep(2)
+
+        size_buttons = driver.find_elements(By.CSS_SELECTOR, "button[data-qa-anchor='sizeListItem']")
+        sizes_found = {size.upper(): False for size in sizes_to_check}
+        any_in_stock = None
+
+        for button in size_buttons:
+            try:
+                # P&B stores the size text (S, M, L, etc) in a span with class 'text__label'
+                size_label_elem = button.find_element(By.CSS_SELECTOR, "span.text__label")
+                size_label = size_label_elem.text.strip().upper()
+
+                if size_label in sizes_found:
+                    sizes_found[size_label] = True
+
+                    # Check for stock: P&B adds 'is-disabled' to the class
+                    # and sets 'aria-disabled="true"' for out of stock items
+                    class_attr = button.get_attribute("class") or ""
+                    aria_disabled = button.get_attribute("aria-disabled") == "true"
+
+                    # Check if 'Coming Soon' or 'Notify Me' (Haber Ver) sub-label exists
+                    # Often indicated by a child span with specific classes
+                    is_coming_soon = False
+                    try:
+                        status_label = button.find_element(By.CSS_SELECTOR, ".coming-soon-label").text
+                        if status_label: is_coming_soon = True
+                    except:
+                        pass
+
+                    if "is-disabled" in class_attr or aria_disabled or is_coming_soon:
+                        print(f"P&B: {size_label} is out of stock.")
+                        if any_in_stock is None: any_in_stock = False
+                    else:
+                        print(f"P&B: SUCCESS! {size_label} is IN STOCK.")
+                        return size_label  # Return the size found to trigger your notification
+
+            except Exception as e:
+                continue
+
+        if not any(sizes_found.values()):
+            print(f"⚠️ P&B: Requested sizes {', '.join(sizes_to_check)} not found on this page.")
+            return None
+
+        if any_in_stock is False:
+            return False
+
+    except Exception as e:
+        print(f"An error occurred while checking Pull & Bear stock: {e}")
+
+    return None
